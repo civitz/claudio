@@ -2,7 +2,49 @@ param(
     [string]$MachineName = "podman-machine-default"
 )
 
-$ClaudeHome = "c:/Users/roberto/claudehome"
+$ConfigFile = "$HOME\claudio.ini"
+
+function Get-DefaultMountpoints {
+    $mounts = [System.Collections.Generic.List[string]]::new()
+    $mounts.Add("C:\Users\$env:USERNAME:/Users/$env:USERNAME")
+    foreach ($drive in [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady }) {
+        $letter = $drive.Name[0].ToString().ToLower()
+        $hostPath = $drive.Name.TrimEnd('\')
+        $mounts.Add("${hostPath}:/mnt/${letter}")
+    }
+    return $mounts -join ","
+}
+
+function Read-IniFile ([string]$Path) {
+    $config = @{}
+    foreach ($line in Get-Content $Path) {
+        $line = $line.Trim()
+        if ($line -match '^([^=;#\[]+)=(.*)$') {
+            $config[$matches[1].Trim()] = $matches[2].Trim()
+        }
+    }
+    return $config
+}
+
+function Write-DefaultConfig ([string]$Path) {
+    $defaultMounts = Get-DefaultMountpoints
+    @"
+; claudio configuration — edit and re-run to apply changes
+home=~/claudehome
+mountpoints=$defaultMounts
+"@ | Set-Content -Path $Path -Encoding UTF8
+    Write-Host "Created default config at $Path"
+}
+
+if (-not (Test-Path $ConfigFile)) {
+    Write-DefaultConfig -Path $ConfigFile
+}
+
+$config = Read-IniFile -Path $ConfigFile
+
+$homeBase = $HOME -replace '\\', '/'
+$ClaudeHome = ($config['home'] -replace '^~', $homeBase)
+$Mountpoints = $config['mountpoints']
 
 # Check machine state via JSON output
 $machineJson = podman machine list --format json 2>$null
@@ -23,8 +65,8 @@ if (-not $machine) {
         --cpus 2 `
         --disk-size 50 `
         --memory 4096 `
-        --volume "C:\Users\roberto:/Users/roberto,C:\:/mnt/c,D:\progetti:/mnt/d/progetti" `
-        --username roberto `
+        --volume $Mountpoints `
+        --username $env:USERNAME `
         --rootful=false `
         --now `
         $MachineName
@@ -52,7 +94,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host ""
     Write-Host "The 'claudio' image is not present. Build it first:"
     Write-Host ""
-    Write-Host "  cd D:\progetti\claudio"
+    Write-Host "  cd $PSScriptRoot"
     Write-Host "  podman build -t claudio ."
     Write-Host ""
     exit 1
