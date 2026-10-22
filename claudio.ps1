@@ -1,7 +1,3 @@
-param(
-    [string]$MachineName = "podman-machine-default"
-)
-
 $ConfigFile = "$HOME\claudio.ini"
 
 function Get-DefaultMountpoints {
@@ -45,6 +41,7 @@ $config = Read-IniFile -Path $ConfigFile
 $homeBase = $HOME -replace '\\', '/'
 $ClaudeHome = ($config['home'] -replace '^~', $homeBase)
 $Mountpoints = $config['mountpoints']
+$MachineName = if ($config['machine']) { $config['machine'] } else { "podman-machine-default" }
 
 # Check machine state via JSON output
 $machineJson = podman machine list --format json 2>$null
@@ -100,11 +97,22 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Launch Claude container
+# Map the host directory to a unique path under /app, so each project gets
+# its own Claude memory (e.g. C:\work\foo -> /app/c/work/foo)
 $currentDir = $PWD.Path
+if ($currentDir -match '^\\\\') {
+    $containerDir = "/app/unc/" + ($currentDir.Substring(2) -replace '\\', '/')
+}
+else {
+    $containerDir = "/app/" + $currentDir.Substring(0, 1).ToLower() + ($currentDir.Substring(2) -replace '\\', '/')
+}
+$containerDir = $containerDir.TrimEnd('/')
+
+# Launch Claude container, forwarding any extra arguments to claude
 podman run -it --rm `
-    -v "${currentDir}:/app" `
+    -v "${currentDir}:${containerDir}" `
+    -w "$containerDir" `
     -v "${ClaudeHome}/.claude/:/home/claude/.claude/" `
     -v "${ClaudeHome}/claude.json:/home/claude/.claude.json" `
     --env-file "${ClaudeHome}/.env" `
-    claudio
+    claudio @args

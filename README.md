@@ -41,7 +41,18 @@ Navigate to any project directory and run:
 claudio
 ```
 
-This starts the Podman machine (creating it on first run if needed) and launches an interactive Claude Code session with the current directory mounted as `/app` inside the container.
+This starts the Podman machine (creating it on first run if needed) and launches an interactive Claude Code session inside the container.
+
+The current directory is mounted under `/app`, mirroring its host path (e.g. `C:\work\foo` becomes `/app/c/work/foo`), and Claude is started from there. This way each project keeps its own Claude memory and settings.
+
+Any arguments are forwarded to `claude`:
+
+```cmd
+claudio --continue
+claudio -p "explain this repo"
+```
+
+The Podman machine name defaults to `podman-machine-default` and can be changed with `machine=<name>` in `%USERPROFILE%\claudio.ini`.
 
 ## Uninstall
 
