@@ -52,7 +52,39 @@ claudio --continue
 claudio -p "explain this repo"
 ```
 
-The Podman machine name defaults to `podman-machine-default` and can be changed with `machine=<name>` in `%USERPROFILE%\claudio.ini`.
+## Configuration
+
+On first run `claudio` creates `%USERPROFILE%\claudio.ini`:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `home` | `~/claudehome` | Host directory holding Claude's settings and credentials (see below) |
+| `mountpoints` | your user folder and every drive | Comma-separated `host:machine` paths shared with the Podman machine |
+| `machine` | `podman-machine-default` | Podman machine to use |
+| `update_check_days` | `7` | See [Updates](#updates) |
+
+### Claude home
+
+The `home` directory is mounted into every container, so settings, login and history survive across sessions. `claudio` creates what is missing on first run:
+
+- `.claude\` and `claude.json`: Claude Code's settings and state
+- `.env`: environment variables for the container, one `VAR=value` per line
+
+To authenticate, either run `/login` inside Claude (the login is kept in `.claude\`), or put one of these in `.env`:
+
+```
+CLAUDE_CODE_OAUTH_TOKEN=<token from `claude setup-token`>
+ANTHROPIC_API_KEY=<API key>
+```
+
+### Mountpoints
+
+`mountpoints` is only applied when `claudio` creates the Podman machine: editing it afterwards has no effect, and `claudio` warns when it no longer matches the machine. To apply new mountpoints, remove the machine and let `claudio` create it again:
+
+```powershell
+podman machine rm podman-machine-default
+claudio
+```
 
 ## Updates
 
@@ -66,13 +98,18 @@ podman build -t claudio --build-arg CLAUDE_CODE_VERSION=<version> .
 
 ## Uninstall
 
-Delete the two installed files:
+Delete the installed launcher (`claudio.ps1` stays in the repository):
 
 ```powershell
 Remove-Item "$env:USERPROFILE\.local\bin\claudio.bat"
-Remove-Item "$env:USERPROFILE\.local\bin\claudio.ps1"
 ```
 
-`claudio.ps1` lives in the repository and is not touched by uninstall.
+To also remove the configuration and the state files `claudio` keeps next to it:
+
+```powershell
+Remove-Item "$env:USERPROFILE\claudio.ini", "$env:USERPROFILE\.claudio-*"
+```
+
+The Claude home (`home` in `claudio.ini`, by default `%USERPROFILE%\claudehome`) holds your Claude settings, login and history: delete it only if you no longer need them. The image can be removed with `podman rmi claudio`.
 
 To also remove the directory from your PATH, open **System Properties → Environment Variables** and edit the `Path` user variable.

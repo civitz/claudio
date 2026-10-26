@@ -25,8 +25,11 @@ function Read-IniFile ([string]$Path) {
 function Write-DefaultConfig ([string]$Path) {
     $defaultMounts = Get-DefaultMountpoints
     @"
-; claudio configuration — edit and re-run to apply changes
+; claudio configuration
+; host directory holding Claude's settings, credentials and .env
 home=~/claudehome
+; host:machine paths shared with the Podman machine. Only applied when the
+; machine is created: to change them, remove the machine and run claudio again
 mountpoints=$defaultMounts
 ; check for a newer Claude Code once the image is this many days old (0 = never)
 update_check_days=7
@@ -41,9 +44,10 @@ if (-not (Test-Path $ConfigFile)) {
 $config = Read-IniFile -Path $ConfigFile
 
 $homeBase = $HOME -replace '\\', '/'
-$ClaudeHome = ($config['home'] -replace '^~', $homeBase)
-$Mountpoints = $config['mountpoints']
+$ClaudeHome = if ($config['home']) { $config['home'] -replace '^~', $homeBase } else { "$homeBase/claudehome" }
+$Mountpoints = "$($config['mountpoints'])"
 $MachineName = if ($config['machine']) { $config['machine'] } else { "podman-machine-default" }
+$MountpointsStampFile = "$HOME\.claudio-mountpoints-$MachineName"
 $UpdateCheckDays = if ($config['update_check_days'] -match '^\d+$') { [int]$config['update_check_days'] } else { 7 }
 $UpdateStampFile = "$HOME\.claudio-update-check"
 
@@ -87,6 +91,18 @@ elseif ($machine.Running -ne $true) {
 }
 else {
     Write-Host "Podman machine '$MachineName' is already running."
+}
+
+# mountpoints only take effect when the machine is created: remember the ones
+# in use (taking the current ones as baseline for machines created before
+# this check existed) and warn when claudio.ini no longer matches
+if (-not $machine -or -not (Test-Path $MountpointsStampFile)) {
+    Set-Content -Path $MountpointsStampFile -Value $Mountpoints
+}
+elseif ("$(Get-Content $MountpointsStampFile -Raw)".Trim() -ne $Mountpoints) {
+    Write-Warning ("mountpoints in $ConfigFile changed since machine '$MachineName' was created, " +
+        "but they only apply when the machine is created. To apply them, run " +
+        "'podman machine rm $MachineName' and then claudio again.")
 }
 
 # Check if claudio image exists
@@ -156,6 +172,23 @@ else {
     $containerDir = "/app/" + $currentDir.Substring(0, 1).ToLower() + ($currentDir.Substring(2) -replace '\\', '/')
 }
 $containerDir = $containerDir.TrimEnd('/')
+
+# podman fails on missing bind-mount sources and env files: create them
+# on first run
+New-Item -ItemType Directory -Force -Path "$ClaudeHome/.claude" | Out-Null
+if (-not (Test-Path "$ClaudeHome/claude.json")) {
+    Set-Content -Path "$ClaudeHome/claude.json" -Value '{}' -Encoding Ascii
+}
+if (-not (Test-Path "$ClaudeHome/.env")) {
+    @"
+# Environment for the claudio container, one VAR=value per line.
+# Leave the credentials unset to log in with /login inside Claude (the login
+# is kept in .claude/), or set one of:
+#CLAUDE_CODE_OAUTH_TOKEN=
+#ANTHROPIC_API_KEY=
+"@ | Set-Content -Path "$ClaudeHome/.env" -Encoding Ascii
+    Write-Host "Created $ClaudeHome/.env: edit it to set credentials or other variables."
+}
 
 $podmanArgs = @(
     "run", "-it", "--rm",
