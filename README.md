@@ -54,6 +54,16 @@ claudio -p "explain this repo"
 
 The Podman machine name defaults to `podman-machine-default` and can be changed with `machine=<name>` in `%USERPROFILE%\claudio.ini`.
 
+## Updates
+
+Claude Code's auto-updater is disabled inside the container, since updates would be lost when it exits. Instead, once the image is older than `update_check_days` (default 7, set in `claudio.ini`; `0` disables the check), `claudio` compares the Claude Code version in the image with the latest release and offers to rebuild the image. After a check it waits another `update_check_days` before checking again.
+
+To rebuild manually with a specific version:
+
+```powershell
+podman build -t claudio --build-arg CLAUDE_CODE_VERSION=<version> .
+```
+
 ## Uninstall
 
 Delete the two installed files:

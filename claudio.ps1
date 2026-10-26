@@ -28,6 +28,8 @@ function Write-DefaultConfig ([string]$Path) {
 ; claudio configuration — edit and re-run to apply changes
 home=~/claudehome
 mountpoints=$defaultMounts
+; check for a newer Claude Code once the image is this many days old (0 = never)
+update_check_days=7
 "@ | Set-Content -Path $Path -Encoding UTF8
     Write-Host "Created default config at $Path"
 }
@@ -42,6 +44,8 @@ $homeBase = $HOME -replace '\\', '/'
 $ClaudeHome = ($config['home'] -replace '^~', $homeBase)
 $Mountpoints = $config['mountpoints']
 $MachineName = if ($config['machine']) { $config['machine'] } else { "podman-machine-default" }
+$UpdateCheckDays = if ($config['update_check_days'] -match '^\d+$') { [int]$config['update_check_days'] } else { 7 }
+$UpdateStampFile = "$HOME\.claudio-update-check"
 
 # Check machine state via JSON output
 $machineJson = podman machine list --format json 2>$null
@@ -95,6 +99,51 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "  podman build -t claudio ."
     Write-Host ""
     exit 1
+}
+
+# Once the image (or the last check) is older than update_check_days, compare
+# the Claude Code version inside the image with the latest release
+function Get-LastUpdateCheck {
+    $last = [DateTimeOffset]::FromUnixTimeSeconds([long](podman image inspect claudio --format '{{.Created.Unix}}'))
+    if (Test-Path $UpdateStampFile) {
+        $stamp = (Get-Content $UpdateStampFile -TotalCount 1) -as [long]
+        if ($stamp -and $stamp -gt $last.ToUnixTimeSeconds()) {
+            $last = [DateTimeOffset]::FromUnixTimeSeconds($stamp)
+        }
+    }
+    return $last
+}
+
+function Get-LatestClaudeVersion {
+    # PowerShell 5.1 may not enable TLS 1.2 by default
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    try {
+        $latest = Invoke-RestMethod -Uri "https://downloads.claude.ai/claude-code-releases/latest" -TimeoutSec 5
+        if ("$latest".Trim() -match '^\d+\.\d+\.\d+$') { return $matches[0] }
+    }
+    catch {}
+    return $null
+}
+
+if ($UpdateCheckDays -gt 0 -and (Get-LastUpdateCheck) -lt [DateTimeOffset]::UtcNow.AddDays(-$UpdateCheckDays)) {
+    Write-Host "Checking for Claude Code updates..."
+    $latest = Get-LatestClaudeVersion
+    $installed = if ("$(podman run --rm claudio --version 2>$null)" -match '^\d+\.\d+\.\d+') { $matches[0] }
+
+    if ($latest -and $installed -and [version]$installed -lt [version]$latest) {
+        Write-Host "The 'claudio' image has Claude Code $installed, $latest is available."
+        $confirm = Read-Host "Rebuild the image now? (y/N)"
+        if ($confirm -match '^[Yy]$') {
+            podman build -t claudio --build-arg "CLAUDE_CODE_VERSION=$latest" $PSScriptRoot
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Image rebuild failed, continuing with Claude Code $installed."
+            }
+        }
+    }
+
+    # Remember the check (also when declined or offline) so it runs again
+    # only after another update_check_days
+    [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() | Set-Content -Path $UpdateStampFile
 }
 
 # Map the host directory to a unique path under /app, so each project gets
