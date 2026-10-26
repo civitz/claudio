@@ -108,11 +108,25 @@ else {
 }
 $containerDir = $containerDir.TrimEnd('/')
 
-# Launch Claude container, forwarding any extra arguments to claude
-podman run -it --rm `
-    -v "${currentDir}:${containerDir}" `
-    -w "$containerDir" `
-    -v "${ClaudeHome}/.claude/:/home/claude/.claude/" `
-    -v "${ClaudeHome}/claude.json:/home/claude/.claude.json" `
-    --env-file "${ClaudeHome}/.env" `
-    claudio @args
+$podmanArgs = @(
+    "run", "-it", "--rm",
+    "-v", "${currentDir}:${containerDir}",
+    "-w", $containerDir,
+    "-v", "${ClaudeHome}/.claude/:/home/claude/.claude/",
+    "-v", "${ClaudeHome}/claude.json:/home/claude/.claude.json",
+    "--env-file", "${ClaudeHome}/.env",
+    "claudio"
+)
+
+# Launch Claude container, forwarding any extra arguments to claude.
+# claudio.bat sets CLAUDIO_ARGS to the raw command line: --% appends it verbatim,
+# so podman parses it as typed instead of going through PowerShell's re-quoting.
+if ($env:CLAUDIO_ARGS) {
+    podman @podmanArgs --% %CLAUDIO_ARGS%
+}
+else {
+    podman @podmanArgs @args
+}
+
+# powershell -File only reports 0/1 on its own: propagate claude's exit code
+exit $LASTEXITCODE
