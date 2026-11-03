@@ -61,7 +61,7 @@ claudio
 
 This launches an interactive Claude Code session inside the container. On Windows it first starts the Podman machine (creating it on first run if needed); on Linux Podman runs natively and no machine is needed.
 
-The current directory is mounted under `/app`, mirroring its host path (e.g. `C:\work\foo` becomes `/app/c/work/foo`, `/home/me/foo` becomes `/app/home/me/foo`), and Claude is started from there. This way each project keeps its own Claude memory and settings.
+The current directory is mounted under `/app`, mirroring its host path (e.g. `C:\work\foo` becomes `/app/c/work/foo`, `/home/me/foo` becomes `/app/home/me/foo`), and Claude is started from there. This way each project keeps its own Claude memory and settings. Symlinks (and on Windows junctions, `subst` drives and letter case) are resolved first, so a project keeps the same path, and its sessions, however you navigate to it.
 
 Any arguments are forwarded to `claude`:
 

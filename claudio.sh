@@ -103,8 +103,11 @@ if [ "$UpdateCheckDays" -gt 0 ] && [ -t 0 ] &&
 fi
 
 # Map the host directory to a unique path under /app, so each project gets
-# its own Claude memory (e.g. /home/me/foo -> /app/home/me/foo)
-currentDir=$PWD
+# its own Claude memory (e.g. /home/me/foo -> /app/home/me/foo). Symlinks are
+# resolved, so the same directory always gets the same container path however
+# it was reached (e.g. /home -> /var/home on Fedora Atomic): Claude keys its
+# sessions and memory by that path
+currentDir=$(pwd -P)
 containerDir="/app${currentDir%/}"
 
 # podman fails on missing bind-mount sources and env files: create them

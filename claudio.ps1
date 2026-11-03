@@ -173,9 +173,51 @@ if ($UpdateCheckDays -gt 0 -and (Get-LastUpdateCheck) -lt [DateTimeOffset]::UtcN
     [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() | Set-Content -Path $UpdateStampFile
 }
 
+# Resolve symlinks, junctions, subst drives and letter case, so the same
+# directory always maps to the same container path whichever way it was
+# reached: Claude keys its sessions and memory by that path
+function Resolve-RealPath([string]$Path) {
+    try {
+        if (-not ('Claudio.Native' -as [type])) {
+            Add-Type -Namespace Claudio -Name Native -MemberDefinition @'
+[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
+    string name, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern uint GetFinalPathNameByHandleW(
+    Microsoft.Win32.SafeHandles.SafeFileHandle handle, System.Text.StringBuilder path, uint size, uint flags);
+'@
+        }
+        # No access rights, share all, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS
+        # (needed to open a directory)
+        $handle = [Claudio.Native]::CreateFileW($Path, 0, 7, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
+        if ($handle.IsInvalid) { return $Path }
+        try {
+            $buffer = New-Object System.Text.StringBuilder 32768
+            $length = [Claudio.Native]::GetFinalPathNameByHandleW($handle, $buffer, $buffer.Capacity, 0)
+            if ($length -eq 0 -or $length -ge $buffer.Capacity) { return $Path }
+            $final = $buffer.ToString()
+        }
+        finally {
+            $handle.Dispose()
+        }
+    }
+    catch {
+        return $Path
+    }
+    if ($final.StartsWith('\\?\UNC\')) { $final = '\\' + $final.Substring(8) }
+    elseif ($final.StartsWith('\\?\')) { $final = $final.Substring(4) }
+    # A mapped network drive resolves to its UNC share, which may not be in
+    # the machine's mountpoints: keep the drive letter
+    if ($final.StartsWith('\\') -and -not $Path.StartsWith('\\')) { return $Path }
+    return $final
+}
+
 # Map the host directory to a unique path under /app, so each project gets
-# its own Claude memory (e.g. C:\work\foo -> /app/c/work/foo)
-$currentDir = $PWD.Path
+# its own Claude memory (e.g. C:\work\foo -> /app/c/work/foo). ProviderPath
+# is the file system path, also for PowerShell drives and UNC locations
+# (where Path has a "FileSystem::" prefix)
+$currentDir = Resolve-RealPath $PWD.ProviderPath
 if ($currentDir -match '^\\\\') {
     $containerDir = "/app/unc/" + ($currentDir.Substring(2) -replace '\\', '/')
 }
