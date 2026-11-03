@@ -32,6 +32,34 @@ Set-Content "$InstallDir\claudio.bat" $batContent -NoNewline
 Write-Host "Installed claudio.bat -> $InstallDir\claudio.bat"
 Write-Host "claudio.ps1 remains at $PSScriptRoot\claudio.ps1"
 
+# Build the image. podman needs a running Podman machine: when there is none
+# (exit code 125), claudio creates it and offers to build the image on first run
+if (-not (Get-Command podman -ErrorAction SilentlyContinue)) {
+    Write-Warning "podman not found. Install Podman Desktop; claudio will offer to build the image on first run."
+}
+else {
+    podman image exists claudio 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "The 'claudio' image is already present."
+    }
+    elseif ($LASTEXITCODE -eq 1) {
+        $confirm = Read-Host "The 'claudio' image is not present. Build it now? (y/N)"
+        if ($confirm -match '^[Yy]$') {
+            podman build -t claudio $PSScriptRoot
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "Image build failed."
+                exit 1
+            }
+        }
+        else {
+            Write-Host "Skipped. claudio will offer to build the image on first run."
+        }
+    }
+    else {
+        Write-Host "The Podman machine is not running: claudio will create or start it and offer to build the image on first run."
+    }
+}
+
 Write-Host ""
 Write-Host "Installation complete."
 if ($pathAdded) {

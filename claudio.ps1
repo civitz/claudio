@@ -108,13 +108,24 @@ elseif ("$(Get-Content $MountpointsStampFile -Raw)".Trim() -ne $Mountpoints) {
 # Check if claudio image exists
 podman image exists claudio 2>$null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host ""
-    Write-Host "The 'claudio' image is not present. Build it first:"
-    Write-Host ""
-    Write-Host "  cd $PSScriptRoot"
-    Write-Host "  podman build -t claudio ."
-    Write-Host ""
-    exit 1
+    Write-Host "The 'claudio' image is not present."
+    $confirm = Read-Host "Build it now? (y/N)"
+    if ($confirm -match '^[Yy]$') {
+        podman build -t claudio $PSScriptRoot
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Image build failed."
+            exit 1
+        }
+    }
+    else {
+        Write-Host ""
+        Write-Host "Build it first:"
+        Write-Host ""
+        Write-Host "  cd $PSScriptRoot"
+        Write-Host "  podman build -t claudio ."
+        Write-Host ""
+        exit 1
+    }
 }
 
 # Once the image (or the last check) is older than update_check_days, compare
@@ -175,7 +186,7 @@ $containerDir = $containerDir.TrimEnd('/')
 
 # podman fails on missing bind-mount sources and env files: create them
 # on first run
-New-Item -ItemType Directory -Force -Path "$ClaudeHome/.claude" | Out-Null
+New-Item -ItemType Directory -Force -Path "$ClaudeHome/claude" | Out-Null
 if (-not (Test-Path "$ClaudeHome/claude.json")) {
     Set-Content -Path "$ClaudeHome/claude.json" -Value '{}' -Encoding Ascii
 }
@@ -183,7 +194,7 @@ if (-not (Test-Path "$ClaudeHome/.env")) {
     @"
 # Environment for the claudio container, one VAR=value per line.
 # Leave the credentials unset to log in with /login inside Claude (the login
-# is kept in .claude/), or set one of:
+# is kept in claude/), or set one of:
 #CLAUDE_CODE_OAUTH_TOKEN=
 #ANTHROPIC_API_KEY=
 "@ | Set-Content -Path "$ClaudeHome/.env" -Encoding Ascii
@@ -194,7 +205,7 @@ $podmanArgs = @(
     "run", "-it", "--rm",
     "-v", "${currentDir}:${containerDir}",
     "-w", $containerDir,
-    "-v", "${ClaudeHome}/.claude/:/home/claude/.claude/",
+    "-v", "${ClaudeHome}/claude/:/home/claude/.claude/",
     "-v", "${ClaudeHome}/claude.json:/home/claude/.claude.json",
     "--env-file", "${ClaudeHome}/.env",
     "claudio"
