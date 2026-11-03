@@ -10,6 +10,11 @@ RUN useradd -m -s /bin/bash claude
 # Switch to non-root user
 USER claude
 
+# Install uv (Python package and project manager) into ~/.local/bin.
+# Kept before the Claude Code ARG so Claude rebuilds reuse this layer.
+WORKDIR /tmp
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh
+
 # Claude Code version to install (stable, latest or x.y.z). The launcher passes
 # the exact version when rebuilding, so only this layer is invalidated.
 ARG CLAUDE_CODE_VERSION=latest
