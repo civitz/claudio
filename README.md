@@ -78,6 +78,7 @@ On first run `claudio` creates `~/claudio.ini` (`%USERPROFILE%\claudio.ini` on W
 | --- | --- | --- |
 | `home` | `~/claudehome` | Host directory holding Claude's settings and credentials (see below) |
 | `update_check_days` | `7` | See [Updates](#updates) |
+| `podman_args` | empty | Extra options for `podman run`, see [Extra Podman options](#extra-podman-options) |
 | `mountpoints` | your user folder and every drive | Windows only: comma-separated `host:machine` paths shared with the Podman machine |
 | `machine` | `podman-machine-default` | Windows only: Podman machine to use |
 
@@ -94,6 +95,18 @@ To authenticate, either run `/login` inside Claude (the login is kept in `claude
 CLAUDE_CODE_OAUTH_TOKEN=<token from `claude setup-token`>
 ANTHROPIC_API_KEY=<API key>
 ```
+
+### Extra Podman options
+
+`podman_args` is added to the `podman run` command before the image name, for example to mount more directories or pass devices. Arguments are split on spaces; quote values containing spaces (`-v "/my data:/data"`). Nothing is evaluated, so `$VAR` and `~` are passed literally. Options also set by `claudio` (such as `-w` or `--userns`) may conflict with its own.
+
+For example, to let Claude reach a service that listens only on the host's loopback, such as an MCP add-on on `127.0.0.1:9876`, forward that one port with pasta (rootless Podman on Linux):
+
+```ini
+podman_args=--network pasta:-T,9876
+```
+
+Inside the container the service is then at `127.0.0.1:9876`. Only the listed ports are forwarded (repeat `-T,<port>` for more), unlike `--network host` or pasta's `--map-host-loopback`, which expose every service on the host's loopback. On Windows the Podman machine's loopback is not Windows' own, so this does not reach services on the Windows host.
 
 ### Mountpoints (Windows)
 

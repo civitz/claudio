@@ -22,6 +22,39 @@ function Read-IniFile ([string]$Path) {
     return $config
 }
 
+# Split a command line into arguments like a shell would: whitespace separates
+# them, and single or double quotes group text containing spaces (also inside
+# an argument, e.g. --opt="a b"). Nothing is evaluated.
+function Split-Arguments ([string]$Line) {
+    $result = [System.Collections.Generic.List[string]]::new()
+    $current = [System.Text.StringBuilder]::new()
+    $inArg = $false
+    $quote = $null
+    foreach ($ch in $Line.ToCharArray()) {
+        if ($null -ne $quote) {
+            if ($ch -eq $quote) { $quote = $null } else { [void]$current.Append($ch) }
+        }
+        elseif ($ch -eq '"' -or $ch -eq "'") {
+            $quote = $ch
+            $inArg = $true
+        }
+        elseif ([char]::IsWhiteSpace($ch)) {
+            if ($inArg) {
+                $result.Add($current.ToString())
+                [void]$current.Clear()
+                $inArg = $false
+            }
+        }
+        else {
+            [void]$current.Append($ch)
+            $inArg = $true
+        }
+    }
+    if ($null -ne $quote) { throw "unbalanced quotes" }
+    if ($inArg) { $result.Add($current.ToString()) }
+    return , $result.ToArray()
+}
+
 function Write-DefaultConfig ([string]$Path) {
     $defaultMounts = Get-DefaultMountpoints
     @"
@@ -33,6 +66,9 @@ home=~/claudehome
 mountpoints=$defaultMounts
 ; check for a newer Claude Code once the image is this many days old (0 = never)
 update_check_days=7
+; extra options for 'podman run', placed before the image name; quote values
+; containing spaces, e.g. podman_args=-v "/mnt/c/my data:/data"
+;podman_args=
 "@ | Set-Content -Path $Path -Encoding UTF8
     Write-Host "Created default config at $Path"
 }
@@ -50,6 +86,13 @@ $MachineName = if ($config['machine']) { $config['machine'] } else { "podman-mac
 $MountpointsStampFile = "$HOME\.claudio-mountpoints-$MachineName"
 $UpdateCheckDays = if ($config['update_check_days'] -match '^\d+$') { [int]$config['update_check_days'] } else { 7 }
 $UpdateStampFile = "$HOME\.claudio-update-check"
+try {
+    $PodmanExtraArgs = Split-Arguments "$($config['podman_args'])"
+}
+catch {
+    Write-Error "Cannot parse podman_args in ${ConfigFile}: $_"
+    exit 1
+}
 
 # Check machine state via JSON output
 $machineJson = podman machine list --format json 2>$null
@@ -249,9 +292,12 @@ $podmanArgs = @(
     "-w", $containerDir,
     "-v", "${ClaudeHome}/claude/:/home/claude/.claude/",
     "-v", "${ClaudeHome}/claude.json:/home/claude/.claude.json",
-    "--env-file", "${ClaudeHome}/.env",
-    "claudio"
+    "--env-file", "${ClaudeHome}/.env"
 )
+# User options from podman_args: before the image, since anything after it
+# goes to claude
+$podmanArgs += $PodmanExtraArgs
+$podmanArgs += "claudio"
 
 # Launch Claude container, forwarding any extra arguments to claude.
 # claudio.bat sets CLAUDIO_ARGS to the raw command line: --% appends it verbatim,

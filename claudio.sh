@@ -23,6 +23,10 @@ if [ ! -f "$ConfigFile" ]; then
 home=~/claudehome
 ; check for a newer Claude Code once the image is this many days old (0 = never)
 update_check_days=7
+; extra options for 'podman run', placed before the image name; quote values
+; containing spaces. E.g. to reach a service listening on the host's
+; 127.0.0.1:9876 at the container's 127.0.0.1:9876 (and no other host port):
+;podman_args=--network pasta:-T,9876
 EOF
     echo "Created default config at $ConfigFile"
 fi
@@ -43,6 +47,15 @@ ClaudeHome=${config[home]:-~/claudehome}
 ClaudeHome=${ClaudeHome/#\~/$HOME}
 UpdateCheckDays=${config[update_check_days]:-7}
 [[ $UpdateCheckDays =~ ^[0-9]+$ ]] || UpdateCheckDays=7
+
+# Split podman_args like a shell would (honouring quotes) without evaluating
+# it: xargs never expands variables or runs commands
+PodmanExtraArgs=()
+if [ -n "${config[podman_args]:-}" ]; then
+    parsed=$(xargs printf '%s\n' <<< "${config[podman_args]}" 2>/dev/null) ||
+        die "Cannot parse podman_args in $ConfigFile (unbalanced quotes?)."
+    mapfile -t PodmanExtraArgs <<< "$parsed"
+fi
 
 confirm() {
     local answer
@@ -144,6 +157,9 @@ podmanArgs+=(
     -v "${ClaudeHome}/claude/:/home/claude/.claude/"
     -v "${ClaudeHome}/claude.json:/home/claude/.claude.json"
     --env-file "${ClaudeHome}/.env"
+    # User options from podman_args: before the image, since anything after
+    # it goes to claude
+    "${PodmanExtraArgs[@]}"
     claudio
 )
 
